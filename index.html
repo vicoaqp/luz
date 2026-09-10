@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Escanear Recibo de Luz - Cámara</title>
+    <!-- Importamos Tesseract.js para el reconocimiento de texto (OCR) -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 450px;
+        }
+        h2 {
+            text-align: center;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn-camara {
+            background-color: #ff9800;
+            color: white;
+            padding: 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            width: 100%;
+            text-align: center;
+            display: block;
+            box-sizing: border-box;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        .btn-camara:hover {
+            background-color: #e68a00;
+        }
+        /* Ocultamos el input feo de archivos, usaremos el botón estilizado */
+        #reciboFoto {
+            display: none;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-top: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        #btnEscanear {
+            background-color: #17a2b8;
+        }
+        #btnEscanear:hover {
+            background-color: #138496;
+        }
+        #btnEnviar {
+            background-color: #28a745;
+            margin-top: 15px;
+        }
+        #btnEnviar:hover {
+            background-color: #218838;
+        }
+        #mensaje {
+            margin-top: 15px;
+            text-align: center;
+            font-weight: bold;
+        }
+        .preview-img {
+            max-width: 100%;
+            height: auto;
+            margin-top: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Escanear Recibo SEAL</h2>
+    
+    <div class="form-group">
+        <label>Fotografiar Recibo:</label>
+        <!-- capture="environment" abre directamente la cámara trasera en celulares -->
+        <input type="file" id="reciboFoto" accept="image/*" capture="environment">
+        
+        <!-- Botón estilizado que activa la cámara -->
+        <label for="reciboFoto" class="btn-camara">📷 Tomar Foto con la Cámara</label>
+        
+        <img id="preview" class="preview-img" alt="Vista previa de la foto">
+    </div>
+
+    <button type="button" id="btnEscanear" onclick="escanearRecibo()" style="display:none;">1. Analizar Foto Escaneada</button>
+
+    <form id="luzForm">
+        <div class="form-group" style="margin-top: 15px;">
+            <label for="mes">Mes Facturado:</label>
+            <input type="text" id="mes" name="mes" placeholder="Ej. Abril-2026" required>
+        </div>
+        <div class="form-group">
+            <label for="consumo">Consumo (kWh):</label>
+            <input type="text" id="consumo" name="consumo" placeholder="Ej. 151" required>
+        </div>
+        <div class="form-group">
+            <label for="monto">Total a Pagar (S/):</label>
+            <input type="text" id="monto" name="monto" placeholder="Ej. 138.60" required>
+        </div>
+        <button type="submit" id="btnEnviar">Guardar en Google Sheet</button>
+    </form>
+    <div id="mensaje"></div>
+</div>
+
+<script>
+    // PEGA AQUÍ LA URL DE TU GOOGLE APPS SCRIPT
+    const urlGoogleScript = "AQUÍ_PEGA_TU_URL_DE_APPS_SCRIPT";
+
+    const inputFoto = document.getElementById('reciboFoto');
+    const preview = document.getElementById('preview');
+    const btnEscanear = document.getElementById('btnEscanear');
+
+    // Al tomar la foto con la cámara, se muestra la vista previa y aparece el botón de escanear
+    inputFoto.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                preview.src = event.target.result;
+                preview.style.display = 'block';
+                btnEscanear.style.display = 'block'; // Mostrar botón de análisis
+            }
+            reader.readAsDataURL(file);
+        }
+    });
+
+    // Función para procesar la foto con Tesseract.js (OCR)
+    async function escanearRecibo() {
+        const file = inputFoto.files[0];
+        const mensaje = document.getElementById('mensaje');
+
+        if (!file) {
+            alert("Primero debes tomar una foto.");
+            return;
+        }
+
+        btnEscanear.disabled = true;
+        btnEscanear.textContent = "Leyendo recibo...";
+        mensaje.style.color = "#333";
+        mensaje.textContent = "Analizando la foto con IA...";
+
+        try {
+            const { data: { text } } = await Tesseract.recognize(file, 'spa');
+            console.log("Texto detectado:", text);
+
+            // Expresiones regulares para capturar los datos del recibo SEAL
+            const matchMes = text.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Setiembre|Octubre|Noviembre|Diciembre)[-\s]?\d{4}/i);
+            if (matchMes) document.getElementById('mes').value = matchMes[0];
+
+            const matchConsumo = text.match(/CONSUMO\s*FACTURADO\D*([\d,.]+)/i) || text.match(/([\d,.]+)\s*kWh/i);
+            if (matchConsumo) document.getElementById('consumo').value = matchConsumo[1];
+
+            const matchMonto = text.match(/TOTAL\s*A\s*PAGAR\s*S\/\D*([\d,.]+)/i) || text.match(/\*{2,}([\d,.]+)/);
+            if (matchMonto) document.getElementById('monto').value = matchMonto[1];
+
+            mensaje.style.color = "green";
+            mensaje.textContent = "¡Datos extraídos con éxito! Revisa y guarda.";
+        } catch (error) {
+            console.error(error);
+            mensaje.style.color = "red";
+            mensaje.textContent = "No se pudo leer automáticamente. Puedes rellenar los datos a mano.";
+        } finally {
+            btnEscanear.disabled = false;
+            btnEscanear.textContent = "1. Analizar Foto Escaneada";
+        }
+    }
+
+    // Enviar datos a Google Sheets
+    const form = document.getElementById('luzForm');
+    form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const btnEnviar = document.getElementById('btnEnviar');
+        const mensaje = document.getElementById('mensaje');
+        btnEnviar.disabled = true;
+        btnEnviar.textContent = "Guardando...";
+        mensaje.style.color = "#333";
+        mensaje.textContent = "Enviando a Google Sheets...";
+
+        const datos = {
+            mes: document.getElementById('mes').value,
+            consumo: document.getElementById('consumo').value,
+            monto: document.getElementById('monto').value
+        };
+
+        fetch(urlGoogleScript, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(datos)
+        })
+        .then(() => {
+            mensaje.style.color = "green";
+            mensaje.textContent = "¡Registrado correctamente en Google Sheets!";
+            form.reset();
+            preview.style.display = 'none';
+            btnEscanear.style.display = 'none';
+            inputFoto.value = '';
+            btnEnviar.disabled = false;
+            btnEnviar.textContent = "Guardar en Google Sheet";
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            mensaje.style.color = "red";
+            mensaje.textContent = "Hubo un error al conectar con Google Sheets.";
+            btnEnviar.disabled = false;
+            btnEnviar.textContent = "Guardar en Google Sheet";
+        });
+    });
+</script>
+
+</body>
+</html>
