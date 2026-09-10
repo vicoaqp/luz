@@ -165,40 +165,26 @@
             const { data: { text } } = await Tesseract.recognize(sourceToProcess, 'spa');
             console.log("Texto detectado:\n", text);
 
-            // 1. Mes Facturado (Patrón exacto y confiable de la primera versión)
+            // 1. Mes Facturado (Funcionando perfecto)
             const matchMes = text.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Setiembre|Octubre|Noviembre|Diciembre)[-\s]?\d{4}/i);
             if (matchMes) document.getElementById('mes').value = matchMes[0];
 
-            // 2. Consumo en kWh (Patrón exacto de la primera versión)
+            // 2. Consumo en kWh (Funcionando perfecto)
             const matchConsumo = text.match(/CONSUMO\s*FACTURADO\D*([\d,.]+)/i) || text.match(/([\d,.]+)\s*kWh/i);
             if (matchConsumo) document.getElementById('consumo').value = matchConsumo[1];
 
-            // 3. Total a Pagar: Buscamos específicamente la línea que contiene TOTAL A PAGAR o los asteriscos, evitando Fose
-            // Dividimos el texto en líneas para buscar la zona de pago final
-            const lineas = text.split('\n');
-            let montoEncontrado = "";
-
-            for (let i = 0; i < lineas.length; i++) {
-                let linea = lineas[i];
-                // Buscamos la línea que hable de total a pagar o tenga asteriscos, asegurándonos que no sea la del Fose
-                if (/TOTAL.*PAGAR/i.test(linea) || /\*{2,}/.test(linea)) {
-                    // Buscamos un número decimal dentro de esta línea o en la siguiente
-                    let subTexto = linea + " " + (lineas[i+1] || "");
-                    let matchNum = subTexto.match(/([\d,]+\.\d{2})/);
-                    if (matchNum) {
-                        montoEncontrado = matchNum[1].replace(',', '.');
-                    }
+            // 3. Total a Pagar: Buscamos obligatoriamente el número que tenga asteriscos al lado (ej. ***138.60)
+            // Esto descarta automáticamente el 2.63 del Fose y cualquier otro valor pequeño.
+            const matchAsteriscos = text.match(/\*{2,}\s*([\d,.]+)/);
+            if (matchAsteriscos) {
+                document.getElementById('monto').value = matchAsteriscos[1].replace(',', '.');
+            } else {
+                // Plan de respaldo por si los asteriscos no se leen bien: busca el número más grande al final del texto
+                const todosLosNumeros = text.match(/\d+[\.,]\d{2}/g);
+                if (todosLosNumeros && todosLosNumeros.length > 0) {
+                    // Tomamos el último número con decimales detectado en el recibo (que suele ser el total)
+                    document.getElementById('monto').value = todosLosNumeros[todosLosNumeros.length - 1].replace(',', '.');
                 }
-            }
-
-            // Respaldo por si acaso: buscar explícitamente el patrón de asteriscos característico del recibo
-            if (!montoEncontrado) {
-                const matchAsteriscos = text.match(/\*{2,}\s*([\d,.]+)/);
-                if (matchAsteriscos) montoEncontrado = matchAsteriscos[1].replace(',', '.');
-            }
-
-            if (montoEncontrado) {
-                document.getElementById('monto').value = montoEncontrado;
             }
 
             mensaje.style.color = "green";
