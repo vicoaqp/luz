@@ -45,7 +45,7 @@
         #btnEscanear:hover { background-color: #138496; }
         #btnEnviar { background-color: #28a745; margin-top: 15px; }
         #btnEnviar:hover { background-color: #218838; }
-        #mensaje { margin-top: 15px; text-align: center; font-weight: bold; font-size: 14px; }
+        #mensaje { margin-top: 15px; text-align: center; font-weight: bold; }
         .preview-container { text-align: center; margin-top: 10px; }
         .preview-img { max-width: 100%; max-height: 250px; border-radius: 4px; display: none; transform-origin: center; }
     </style>
@@ -113,7 +113,6 @@
                     preview.style.display = 'inline-block';
                     btnRotar.style.display = 'block';
                     btnEscanear.style.display = 'block';
-                    document.getElementById('mensaje').textContent = "";
                 }
             }
             reader.readAsDataURL(file);
@@ -133,92 +132,77 @@
         }
 
         btnEscanear.disabled = true;
-        btnEscanear.textContent = "Procesando imagen...";
+        btnEscanear.textContent = "Leyendo recibo...";
         mensaje.style.color = "#333";
-        mensaje.textContent = "Optimizando y leyendo recibo con IA...";
+        mensaje.textContent = "Procesando imagen con IA...";
 
-        try {
-            // Paso de optimización: Redimensionar imagen gigante a un tamaño ideal para OCR (máx 1200px de ancho/alto)
+        let sourceToProcess = imagenOriginal;
+        if (anguloActual !== 0) {
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
-            
             let width = imagenOriginal.width;
             let height = imagenOriginal.height;
-            const maxSize = 1200;
 
-            if (width > maxSize || height > maxSize) {
-                if (width > height) {
-                    height = Math.round((height * maxSize) / width);
-                    width = maxSize;
-                } else {
-                    width = Math.round((width * maxSize) / height);
-                    height = maxSize;
-                }
-            }
-
-            canvas.width = width;
-            canvas.height = height;
-            ctx.clearRect(0, 0, width, height);
-
-            ctx.save();
-            ctx.translate(width / 2, height / 2);
-            ctx.rotate((anguloActual * Math.PI) / 180);
-            
-            // Ajustar coordenadas según la rotación
             if (anguloActual === 90 || anguloActual === 270) {
-                ctx.drawImage(imagenOriginal, -height / 2, -width / 2, height, width);
+                canvas.width = height;
+                canvas.height = width;
             } else {
-                ctx.drawImage(imagenOriginal, -width / 2, -height / 2, width, height);
+                canvas.width = width;
+                canvas.height = height;
             }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate((anguloActual * Math.PI) / 180);
+            ctx.drawImage(imagenOriginal, -width / 2, -height / 2);
             ctx.restore();
 
-            const optimizedDataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            sourceToProcess = canvas.toDataURL('image/jpeg');
+        }
 
-            mensaje.textContent = "Leyendo texto del recibo...";
-            const { data: { text } } = await Tesseract.recognize(optimizedDataUrl, 'spa');
+        try {
+            const { data: { text } } = await Tesseract.recognize(sourceToProcess, 'spa');
             console.log("Texto detectado:\n", text);
 
-            if (!text || text.trim().length < 5) {
-                throw new Error("No se detectó texto claro.");
-            }
+            // 1. Mes Facturado (Patrón exacto y confiable de la primera versión)
+            const matchMes = text.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Setiembre|Octubre|Noviembre|Diciembre)[-\s]?\d{4}/i);
+            if (matchMes) document.getElementById('mes').value = matchMes[0];
 
-            // 1. Detección de Mes Facturado
-            const matchMes = text.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Setiembre|Octubre|Noviembre|Diciembre)[\s\-\/]*\d{4}/i);
-            if (matchMes) {
-                document.getElementById('mes').value = matchMes[0].replace(/\s+/, '-');
-            }
+            // 2. Consumo en kWh (Patrón exacto de la primera versión)
+            const matchConsumo = text.match(/CONSUMO\s*FACTURADO\D*([\d,.]+)/i) || text.match(/([\d,.]+)\s*kWh/i);
+            if (matchConsumo) document.getElementById('consumo').value = matchConsumo[1];
 
-            // 2. Detección de Consumo en kWh
-            const matchConsumo = text.match(/CONSUMO\s*FACTURADO\D*(\d+([.,]\d+)?)/i) || 
-                                 text.match(/(\d+([.,]\d+)?)\s*kWh/i) || 
-                                 text.match(/(\d{2,4})\s*kWh/i);
-            if (matchConsumo) {
-                document.getElementById('consumo').value = matchConsumo[1].replace(',', '.');
-            }
-
-            // 3. Detección de Total a Pagar (Búsqueda robusta por asteriscos o etiqueta final)
+            // 3. Total a Pagar: Buscamos específicamente la línea que contiene TOTAL A PAGAR o los asteriscos, evitando Fose
+            // Dividimos el texto en líneas para buscar la zona de pago final
+            const lineas = text.split('\n');
             let montoEncontrado = "";
-            const matchMontoCuadro = text.match(/TOTAL\s*A\s*PAGAR[\s\S]*?(\d+[\.,]\d{2})/i);
-            const matchAsteriscos = text.match(/\*{2,}\s*(\d+[\.,]\d{2})/);
 
-            if (matchMontoCuadro) {
-                montoEncontrado = matchMontoCuadro[1];
-            } else if (matchAsteriscos) {
-                montoEncontrado = matchAsteriscos[1];
-            } else {
-                // Plan de respaldo: buscar cualquier número decimal grande al final del texto detectado
-                const todosLosMontos = text.match(/\d+[\.,]\d{2}/g);
-                if (todosLosMontos && todosLosMontos.length > 0) {
-                    montoEncontrado = todosLosMontos[todosLosMontos.length - 1]; // Toma el último número decimal encontrado en el recibo
+            for (let i = 0; i < lineas.length; i++) {
+                let linea = lineas[i];
+                // Buscamos la línea que hable de total a pagar o tenga asteriscos, asegurándonos que no sea la del Fose
+                if (/TOTAL.*PAGAR/i.test(linea) || /\*{2,}/.test(linea)) {
+                    // Buscamos un número decimal dentro de esta línea o en la siguiente
+                    let subTexto = linea + " " + (lineas[i+1] || "");
+                    let matchNum = subTexto.match(/([\d,]+\.\d{2})/);
+                    if (matchNum) {
+                        montoEncontrado = matchNum[1].replace(',', '.');
+                    }
                 }
+            }
+
+            // Respaldo por si acaso: buscar explícitamente el patrón de asteriscos característico del recibo
+            if (!montoEncontrado) {
+                const matchAsteriscos = text.match(/\*{2,}\s*([\d,.]+)/);
+                if (matchAsteriscos) montoEncontrado = matchAsteriscos[1].replace(',', '.');
             }
 
             if (montoEncontrado) {
-                document.getElementById('monto').value = montoEncontrado.replace(',', '.');
+                document.getElementById('monto').value = montoEncontrado;
             }
 
             mensaje.style.color = "green";
-            mensaje.textContent = "¡Análisis completado! Revisa los datos y guarda.";
+            mensaje.textContent = "¡Datos extraídos con éxito! Revisa y guarda.";
         } catch (error) {
             console.error(error);
             mensaje.style.color = "red";
@@ -264,7 +248,7 @@
         })
         .catch(error => {
             console.error(error);
-            mensaje.style.color.color = "red";
+            mensaje.style.color = "red";
             mensaje.textContent = "Error al conectar con Google Sheets.";
             btnEnviar.disabled = false;
             btnEnviar.textContent = "Guardar en Google Sheet";
