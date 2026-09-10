@@ -89,6 +89,7 @@
 <canvas id="canvas" style="display:none;"></canvas>
 
 <script>
+    // PEGA AQUÍ LA URL DE TU GOOGLE APPS SCRIPT
     const urlGoogleScript = "AQUÍ_PEGA_TU_URL_DE_APPS_SCRIPT";
 
     const inputFoto = document.getElementById('reciboFoto');
@@ -135,7 +136,6 @@
         mensaje.style.color = "#333";
         mensaje.textContent = "Procesando imagen con IA...";
 
-        // Si giró la imagen, la redibujamos en el canvas con la rotación para que Tesseract la lea derecha
         let sourceToProcess = imagenOriginal;
         if (anguloActual !== 0) {
             const canvas = document.getElementById('canvas');
@@ -165,17 +165,21 @@
             const { data: { text } } = await Tesseract.recognize(sourceToProcess, 'spa');
             console.log("Texto detectado:\n", text);
 
-            // Búsqueda flexible de Mes (busca meses en español seguidos de año)
+            // 1. Mes Facturado
             const matchMes = text.match(/(Enero|Febrero|Marzo|Abril|Mayo|Junio|Julio|Agosto|Setiembre|Octubre|Noviembre|Diciembre)[\s\-\/]*\d{4}/i);
             if (matchMes) document.getElementById('mes').value = matchMes[0].replace(/\s+/, '-');
 
-            // Búsqueda flexible de Consumo kWh (busca números seguidos de kWh o palabras clave)
-            const matchConsumo = text.match(/(\d+([.,]\d+)?)\s*kWh/i) || text.match(/CONSUMO\D*(\d+([.,]\d+)?)/i);
+            // 2. Consumo en kWh
+            const matchConsumo = text.match(/CONSUMO\s*FACTURADO\D*(\d+([.,]\d+)?)/i) || text.match(/(\d+([.,]\d+)?)\s*kWh/i);
             if (matchConsumo) document.getElementById('consumo').value = matchConsumo[1].replace(',', '.');
 
-            // Búsqueda flexible de Total a Pagar (busca montos con asteriscos o etiquetas de total)
-            const matchMonto = text.match(/TOTAL[\s\S]*?(\d+[\.,]\d{2})/i) || text.match(/\*{2,}\s*(\d+[\.,]\d{2})/);
-            if (matchMonto) document.getElementById('monto').value = matchMonto[1].replace(',', '.');
+            // 3. Total a Pagar (Ignorando Fose y buscando el cuadro inferior con asteriscos)
+            const regexTotal = /TOTAL\s*A\s*PAGAR\s*S\/[\s\S]*?(\d+[\.,]\d{2})/i;
+            const matchMonto = text.match(regexTotal) || text.match(/\*{2,}\s*(\d+[\.,]\d{2})/);
+            
+            if (matchMonto) {
+                document.getElementById('monto').value = matchMonto[1].replace(',', '.');
+            }
 
             mensaje.style.color = "green";
             mensaje.textContent = "¡Datos extraídos! Revisa que sean correctos y guarda.";
